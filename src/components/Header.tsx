@@ -435,7 +435,7 @@ export default function Header() {
           class="text-text1 mx-2 w-8 h-8"
         >
           <img
-            src="/logo.svg"
+            src="https://iili.io/HO3nLba.png"
             alt="Conduit"
             class="h-8 w-8 aspect-square min-w-max "
           />
