@@ -437,7 +437,7 @@ export default function Header() {
           <img
             src="https://iili.io/HO3nLba.png"
             alt="Conduit"
-            class="h-8 w-8 aspect-square min-w-max "
+            class="h-8 w-auo min-w-max "
           />
         </Link>
         <Search />
