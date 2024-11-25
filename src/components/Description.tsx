@@ -8,6 +8,7 @@ import {
   Switch,
   createEffect,
   createSignal,
+  on,
 } from "solid-js";
 import { usePreferences } from "~/stores/preferencesStore";
 import {
@@ -52,6 +53,8 @@ import { useCookie } from "~/utils/hooks";
 import { RiSystemThumbDownFill, RiSystemThumbUpFill } from "solid-icons/ri";
 import { BiSolidCategoryAlt } from "solid-icons/bi";
 import { useAppState } from "~/stores/appStateStore";
+import DownloadProgressUI from "./DownloadProgressUI";
+import { dialog } from "~/stores/DialogContext";
 
 function handleTimestamp(videoId: string, t: string, extraQueryParams: string) {
   const player = document.querySelector("media-player") as MediaPlayerElement;
@@ -70,7 +73,7 @@ function handleTimestamp(videoId: string, t: string, extraQueryParams: string) {
 
 (globalThis as any).handleTimestamp = handleTimestamp;
 
-const Description = (props: { downloaded: boolean }) => {
+const Description = () => {
   const [expanded, setExpanded] = createSignal(false);
   const video = useVideoContext();
 
@@ -79,9 +82,13 @@ const Description = (props: { downloaded: boolean }) => {
   async function deleteVideo(id: string) {
     try {
       const root = await navigator.storage.getDirectory();
-      await root.removeEntry(id, { recursive: true });
+      const videosDir = await root.getDirectoryHandle("__videos");
+      await videosDir.removeEntry(id, { recursive: true });
+      toast.success("Deleted video.");
+      setDownloaded(false);
     } catch (e) {
       console.error(`Failed to delete ${id}`, e);
+      toast.error(`Failed to delete video. ${(e as any).message}`);
     }
   }
   const [debugInfoOpen, setDebugInfoOpen] = createSignal(false);
@@ -107,7 +114,7 @@ const Description = (props: { downloaded: boolean }) => {
   const [currentTime, setCurrentTime] = createSignal<number | undefined>(
     undefined
   );
-  const [appState] = useAppState()
+  const [appState] = useAppState();
   function handleSetShareModalOpen(open: boolean) {
     if (open) {
       const player = appState.player.instance;
@@ -119,6 +126,45 @@ const Description = (props: { downloaded: boolean }) => {
       setShareModalOpen(false);
     }
   }
+  const [downloaded, setDownloaded] = createSignal(false);
+  const [searchParams] = useSearchParams();
+
+  const checkDownloaded = async () => {
+    const id = searchParams.v;
+    if (!id) {
+      setDownloaded(false);
+      return;
+    }
+    try {
+      const rootDir = await navigator.storage.getDirectory();
+      const videosDir = await rootDir.getDirectoryHandle("__videos");
+      const currentVideoDir = await videosDir.getDirectoryHandle(id);
+      const file = await currentVideoDir.getFileHandle("completed");
+      if (file) {
+        setDownloaded(true);
+      } else {
+        setDownloaded(false);
+      }
+    } catch (e) {
+      setDownloaded(false);
+    }
+  };
+  createEffect(
+    on(
+      () => appState.downloadProgress,
+      () => {
+        checkDownloaded();
+      }
+    )
+  );
+  createEffect(
+    on(
+      () => searchParams.v,
+      () => {
+        checkDownloaded();
+      }
+    )
+  );
 
   return (
     <>
@@ -208,8 +254,14 @@ const Description = (props: { downloaded: boolean }) => {
             </div>
           </div>
           <ActionsContainer
-            downloaded={props.downloaded}
-            deleteVideo={() => deleteVideo(getVideoId(video.data)!)}
+            downloaded={downloaded()}
+            deleteVideo={() =>
+              dialog.showDelete({
+                title: "Delete video",
+                message: "Are you sure you want to delete this video?",
+                onConfirm: () => deleteVideo(getVideoId(video.data)!),
+              })
+            }
             setDownloadModalOpen={() => setDownloadModalOpen(true)}
             refetch={() => {
               console.dir(window);
@@ -217,6 +269,7 @@ const Description = (props: { downloaded: boolean }) => {
             setDebugInfoOpen={() => setDebugInfoOpen(true)}
             setShareModalOpen={() => handleSetShareModalOpen(true)}
           />
+          <DownloadProgressUI />
           <div
             title={`Published ${(() => {
               const substr = date().toString().split(":")[0];
@@ -350,20 +403,15 @@ export const DescriptionFallback = () => {
           <div class="w-32 h-4 rounded-full animate-pulse bg-bg2" />
         </div>
       </div>
-      <div class="w-full h-12 rounded-full animate-pulse bg-bg2" />
+      <div class="w-full h-8 flex gap-2">
+        <div class="w-32 h-8 rounded-full animate-pulse bg-bg2" />
+        <div class="w-24 h-8 rounded-full animate-pulse bg-bg2" />
+        <div class="w-24 h-8 rounded-full animate-pulse bg-bg2" />
+        <div class="w-48 h-8 rounded-full animate-pulse bg-bg2" />
+        <div class="w-48 h-8 rounded-full animate-pulse bg-bg2" />
+      </div>
       <div class="w-1/3 h-4 rounded-full animate-pulse bg-bg2" />
       <div class="w-full h-32 rounded-lg animate-pulse bg-bg2" />
-      <For each={Array(5)}>
-        {() => (
-          <div class="flex gap-2 w-full items-center">
-            <div class="w-16 h-16 aspect-square rounded-full animate-pulse bg-bg2" />
-            <div class="flex flex-col w-full gap-2">
-              <div class="w-1/2 h-4 rounded-full animate-pulse bg-bg2" />
-              <div class="w-1/3 h-4 rounded-full animate-pulse bg-bg2" />
-            </div>
-          </div>
-        )}
-      </For>
     </div>
   );
 };

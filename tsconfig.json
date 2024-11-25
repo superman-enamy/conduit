@@ -11,12 +11,12 @@
 		"allowJs": true,
 		"noEmit": true,
 		"isolatedModules": true,
-    "types": ["vinxi/client", "vite/client", "vidstack/globals", "vite-plugin-pwa/solid", "node"],
+    "types": ["vinxi/client", "vidstack/globals", "vite-plugin-pwa/solid", "node"],
     "baseUrl": "./",
     "paths": {
       "~/*": ["./src/*"]
     },
-    "lib": ["ESNext", "DOM", "DOM.Iterable", "WebWorker"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable", "WebWorker"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "build", "dist", ".vinxi"]

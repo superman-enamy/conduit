@@ -11,13 +11,17 @@ import {
 import {
   FaSolidBan,
   FaSolidBrush,
+  FaSolidBug,
   FaSolidClapperboard,
   FaSolidClock,
   FaSolidClockRotateLeft,
   FaSolidClosedCaptioning,
   FaSolidComments,
+  FaSolidDatabase,
   FaSolidDownload,
   FaSolidFilm,
+  FaSolidFolderTree,
+  FaSolidGears,
   FaSolidGlobe,
   FaSolidHouse,
   FaSolidLanguage,
@@ -48,10 +52,12 @@ import Collapsible from "~/components/Collapsible";
 import Combobox from "~/components/Combobox";
 import ExportDataModal from "~/components/ExportDataModal";
 import Field from "~/components/Field";
+import FileSystemViewer from "~/components/FileSystemViewerModal";
 import ImportDataModal from "~/components/ImportDataModal";
 import ImportHistoryModal from "~/components/ImportHistoryModal";
 import PreferencesCard from "~/components/PreferencesCard";
 import Select from "~/components/Select";
+import { toast } from "~/components/Toast";
 import Toggle from "~/components/Toggle";
 import InstancePreferences from "~/components/preferences/InstancePreferences";
 import {
@@ -60,9 +66,31 @@ import {
   TRENDING_REGIONS,
   VIDEO_RESOLUTIONS,
 } from "~/config/constants";
+import { dialog } from "~/stores/DialogContext";
 import { usePreferences } from "~/stores/preferencesStore";
 import { useSyncStore } from "~/stores/syncStore";
 import { useCookie } from "~/utils/hooks";
+async function clearCache() {
+  const cacheNames = await caches.keys();
+  await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+
+  toast.success("Cache cleared.");
+}
+async function unregisterServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (let registration of registrations) {
+        await registration.unregister();
+      }
+      toast.success("Successfully unregistered service worker.");
+    } catch (e) {
+      toast.error(`Failed to unregister service worker. ${(e as any).message}`);
+    }
+  } else {
+    toast.error("No service workers registered.");
+  }
+}
 
 export default function Preferences() {
   const navigate = useNavigate();
@@ -73,6 +101,7 @@ export default function Preferences() {
   }
   const [exportDataModalOpen, setExportDataModalOpen] = createSignal(false);
   const [importDataModalOpen, setImportDataModalOpen] = createSignal(false);
+  const [fileSystemModalOpen, setFileSystemModalOpen] = createSignal(false);
   const sync = useSyncStore();
 
   function recursiveDelete(obj: any, path: string[] = []) {
@@ -480,7 +509,12 @@ export default function Preferences() {
           </button>
           <button
             onClick={() => {
-              // recursiveDelete(sync.store);
+              dialog.showDelete({
+                title: "Delete Conduit data",
+                message:
+                  "Are you sure you want to delete all data?<br>This operation cannot be undone.",
+                onConfirm: () => recursiveDelete(sync.store),
+              });
             }}
             class="w-full pl-10 outline-none focus-visible:ring-4 focus-visible:ring-primary rounded hover:bg-bg2"
           >
@@ -516,6 +550,59 @@ export default function Preferences() {
               label="Enable DeArrow"
               checked={preferences.dearrow}
               onChange={(v) => setPreferences("dearrow", v)}
+            />
+          </div>
+        </Collapsible>
+        <Collapsible
+          trigger={
+            <PreferencesCard
+              title="Debug"
+              icon={<FaSolidBug class="w-6 h-6" />}
+            />
+          }
+        >
+          <div class="ml-10 flex justify-between items-center">
+            <PreferencesCard
+              icon={<FaSolidDatabase class="w-6 h-6" />}
+              title="Clear cache"
+            />
+            <Button
+              label="Clear"
+              onClick={() =>
+                dialog.show({
+                  title: "Clear Cache",
+                  message: "Are you sure you want to clear cache?",
+                  onConfirm: clearCache,
+                })
+              }
+            />
+          </div>
+          <div class="ml-10 flex justify-between items-center">
+            <PreferencesCard
+              icon={<FaSolidGears class="w-6 h-6" />}
+              title="Unregister service worker"
+            />
+            <Button
+              label="Unregister"
+              onClick={() =>
+                dialog.show({
+                  title: "Unregister service worker",
+                  message:
+                    "Are you sure you want to unregister the service worker?",
+                  onConfirm: unregisterServiceWorker,
+                })
+              }
+            />
+          </div>
+          <div class="ml-10 flex justify-between items-center">
+            <PreferencesCard
+              icon={<FaSolidFolderTree class="w-6 h-6" />}
+              title="View OPFS Storage"
+            />
+            <Button label="View" onClick={() => setFileSystemModalOpen(true)} />
+            <FileSystemViewer
+              isOpen={fileSystemModalOpen()}
+              setIsOpen={setFileSystemModalOpen}
             />
           </div>
         </Collapsible>

@@ -3,21 +3,26 @@ import { createContext, createEffect, useContext } from "solid-js";
 import { createStore } from "solid-js/store";
 import { MediaPlayerElement } from "vidstack/elements";
 import { ProviderStatus } from "~/components/Header";
+import { DownloadProgress } from "~/utils/hls";
+import { useWindowEvent } from "~/utils/hooks";
+import { getStorageValue } from "~/utils/storage";
+import { WebrtcUser } from "./syncStore";
 
 const store = createStore({
   loading: false,
   touchInProgress: false,
   sync: {
     providers: {
-      idb: "disconnected" as ProviderStatus,
       webrtc: "disconnected" as ProviderStatus,
       opfs: "disconnected" as ProviderStatus,
     },
-    syncing: false,
-    lastSync: 0,
-    userId: 0,
-    users: [] as { id: number; name: string }[],
+    users: [] as WebrtcUser[],
     ready: false,
+    room: {
+      id: "",
+      name: "",
+      password: "",
+    },
   },
   player: {
     instance: undefined as MediaPlayerElement | undefined,
@@ -26,10 +31,25 @@ const store = createStore({
   },
   showNavbar: true,
   smallDevice: false,
+  offline: false,
+  downloadProgress: undefined as DownloadProgress | undefined,
 });
 const AppStateContext = createContext(store);
 export const AppStateProvider = (props: { children: any }) => {
-  const location = useLocation();
+  useWindowEvent("offline", () => {
+    store[1]("offline", navigator.onLine);
+  });
+  useWindowEvent("online", () => {
+    store[1]("offline", navigator.onLine);
+  });
+  createEffect(() => {
+    if (!store[0].sync.room.id) {
+      const room = getStorageValue("room", { id: "" }, "json", "localStorage");
+      if (room.id) {
+        store[1]("sync", "room", room);
+      }
+    }
+  });
   return (
     <AppStateContext.Provider value={store}>
       {props.children}

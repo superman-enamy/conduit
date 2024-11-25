@@ -11,6 +11,7 @@ import {
   createSignal,
   createEffect,
   onMount,
+  on,
 } from "solid-js";
 import { Portal, getRequestEvent } from "solid-js/web";
 import { PlaylistProvider } from "./stores/playlistStore";
@@ -38,6 +39,9 @@ import { SolidNProgress } from "solid-progressbar";
 import NProgress from "nprogress";
 import Watch, { WatchFallback } from "./components/Watch";
 import { getStorageValue, setStorageValue } from "./utils/storage";
+import { toast } from "./components/Toast";
+import { DialogContextProvider } from "./stores/DialogContext";
+import { useCookie } from "./utils/hooks";
 
 const ReloadPrompt = clientOnly(() => import("./components/ReloadPrompt"));
 NProgress.configure({
@@ -60,6 +64,17 @@ export default function App() {
     const theatreMode = !!JSON.parse(cookie.theatreMode ?? "false");
     setPreferences("theme", theme);
     setPreferences("theatreMode", theatreMode);
+  });
+  createEffect(() => {
+    if (preferences.__init) return;
+    const cookie = parseCookie(document.cookie);
+    if (!cookie.defaultHomePage) {
+      const [, setDefaultHomePageCookie] = useCookie(
+        "defaultHomePage",
+        "Trending"
+      );
+      setDefaultHomePageCookie(preferences.content.defaultHomePage);
+    }
   });
 
   createEffect(() => {
@@ -96,10 +111,29 @@ export default function App() {
 
   const [alphaWarningDismissed, setAlphaWarningDismissed] = createSignal(true);
 
+  const isDev = () =>
+    isServer
+      ? process.env.NODE_ENV === "development"
+      : import.meta.env.DEV === true;
+  const swUrl = isDev() ? "/dev-sw.js?dev-sw" : "/sw";
   onMount(() => {
     setAlphaWarningDismissed(
       getStorageValue("alphaWarningDismissed", false, "boolean", "localStorage")
     );
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register(swUrl, {
+          type: "module",
+          scope: "/",
+        })
+        .then((registration) => {
+          console.log("SW registered: ", registration);
+          registration.update();
+        })
+        .catch((registrationError) => {
+          console.log("SW registration failed: ", registrationError);
+        });
+    }
   });
 
   return (
@@ -108,11 +142,12 @@ export default function App() {
         <>
           <MetaProvider tags={[]}>
             <QueryClientProvider client={queryClient}>
-              <VideoContextProvider>
-                <PreferencesProvider>
-                  <AppStateProvider>
-                    <PlaylistProvider>
-                      <QueueProvider>
+              <DialogContextProvider>
+                <VideoContextProvider>
+                  <PreferencesProvider>
+                    <AppStateProvider>
+                      <PlaylistProvider>
+                        <QueueProvider>
                           <SyncedStoreProvider>
                             <div
                               class={` bg-bg1 min-h-screen font-manrope text-sm text-text1 selection:bg-accent2 selection:text-text3`}
@@ -162,13 +197,15 @@ export default function App() {
                                 <Watch />
                               </Suspense>
                               <Portal>
-                                <Toast.Region>
+                                <Toast.Region pauseOnPageIdle={false}>
                                   <Toast.List class="fixed bottom-0 right-0 p-4 flex flex-col gap-2 z-[999999] w-[400px] max-w-[100vw] outline-none" />
                                 </Toast.Region>
                               </Portal>
                               <main>
                                 <Suspense>{props.children}</Suspense>
-                                <ReloadPrompt />
+                                {/* <Show when={isDev()}> */}
+                                {/*   <ReloadPrompt /> */}
+                                {/* </Show> */}
                               </main>
                               <div class="h-20 md:h-0" />
                               <Show when={appState.player.small}>
@@ -177,11 +214,12 @@ export default function App() {
                               <RouteAnnouncer />
                             </div>
                           </SyncedStoreProvider>
-                      </QueueProvider>
-                    </PlaylistProvider>
-                  </AppStateProvider>
-                </PreferencesProvider>
-              </VideoContextProvider>
+                        </QueueProvider>
+                      </PlaylistProvider>
+                    </AppStateProvider>
+                  </PreferencesProvider>
+                </VideoContextProvider>
+              </DialogContextProvider>
             </QueryClientProvider>
           </MetaProvider>
         </>

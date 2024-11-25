@@ -1,4 +1,3 @@
-// TODO: Integrate offline playback
 import Description, { DescriptionFallback } from "~/components/Description";
 import {
   Show,
@@ -38,7 +37,7 @@ import {
   FaSolidPlay,
   FaSolidX,
 } from "solid-icons/fa";
-import { BsSkipEndFill, BsSkipStartFill } from "solid-icons/bs";
+import { BsSkipEndFill, BsSkipStartFill, BsX } from "solid-icons/bs";
 import { RiMediaPlayList2Fill } from "solid-icons/ri";
 import { MediaPlayerElement } from "vidstack/elements";
 import Button from "./Button";
@@ -100,38 +99,11 @@ export default function Watch() {
     });
   });
 
-  async function checkDownloaded() {
-    if (!("getDirectory" in navigator.storage)) {
-      setVideoDownloaded(false);
-      return;
-    }
-    try {
-      const downloaded = await getStreams(route.query.v);
-      if (downloaded) {
-        const manifest = await getHlsManifest(route.query.v);
-        // setVideo({
-        //   value: {
-        //     ...downloaded,
-        //     hls: manifest,
-        //   },
-        // });
-        // console.log(video.value, "previewFrames");
-        return;
-      } else {
-        setVideoDownloaded(false);
-      }
-    } catch (e) {
-      setVideoDownloaded(false);
-      return;
-    }
-  }
-
   function init() {
     setAppState("player", "dismissed", false);
     if (route.pathname === "/watch") {
       setAppState("player", "small", false);
     }
-    checkDownloaded();
   }
 
   createEffect(() => {
@@ -148,7 +120,8 @@ export default function Watch() {
   const isLocalPlaylist = createMemo(() =>
     route.query.list?.startsWith("conduit-")
   );
-  const isWatchLater = createMemo(() => route.query.list === "watchLater");
+  const isWatchLater = createMemo(() => route.query.list === "WL");
+  const isDownloadsList = createMemo(() => route.query.list === "DL");
 
   const playlistQuery = createQuery(() => ({
     queryKey: ["playlist", route.query.list, preferences.instance.api_url],
@@ -166,13 +139,15 @@ export default function Watch() {
       preferences.instance?.api_url &&
       route.query.list &&
       !isLocalPlaylist() &&
-      !isWatchLater()
+      !isWatchLater() &&
+      !searchParams.offline
         ? true
         : false,
     refetchOnReconnect: false,
   }));
 
   createEffect(() => {
+    if (isLocalPlaylist() || isWatchLater() || isDownloadsList()) return;
     if (playlistQuery.isSuccess) {
       setPlaylist({
         ...playlistQuery.data,
@@ -215,6 +190,34 @@ export default function Watch() {
         id: "WL",
         index: route.query.index || "1",
       });
+    } else if (isDownloadsList()) {
+      getDownloadedOPFSVideos().then((videos) => {
+        videos = videos.map((video) => ({
+          ...video,
+          url: `/watch?v=${getVideoId(video)}`,
+          type: "stream",
+          thumbnail: video.thumbnailUrl,
+          uploaderName: video.uploader,
+          uploadedDate: video.uploadDate,
+          shortDescription: "",
+          uploaded: new Date(video.uploadDate).getTime(),
+          isShort: false,
+        }));
+        setPlaylist({
+          name: "Downloads",
+          thumbnailUrl: "",
+          description: "",
+          uploader: "",
+          bannerUrl: "",
+          nextpage: null,
+          uploaderUrl: "",
+          uploaderAvatar: "",
+          videos: 0,
+          relatedStreams: videos as any,
+          id: "DL",
+          index: route.query.index || "1",
+        });
+      });
     }
     setTimeout(() => {
       playlistScrollContainer()?.scrollTo({
@@ -255,17 +258,22 @@ export default function Watch() {
       <div
         classList={{
           "mx-auto w-full flex flex-col": true,
-          "!fixed bottom-0 left-0 sm:bottom-2 sm:left-1 z-[9999] bg-transparent pointer-events-none":
+          "!fixed bottom-0 left-0 z-[9999] bg-transparent pointer-events-none":
             appState.player.small,
-          "sm:items-start": appState.player.small && !appState.smallDevice,
+          "sm:items-start sm:bottom-2 sm:left-1 ":
+            appState.player.small && !appState.smallDevice,
           "items-center": appState.player.small && appState.smallDevice,
-          "max-w-screen-2xl": !preferences.theatreMode,
+          "max-w-screen-2xl":
+            !preferences.theatreMode || !!searchParams.offline,
         }}
       >
         <div
           classList={{
             "flex flex-col w-full pointer-events-auto": true,
-            "lg:flex-row": !preferences.theatreMode && !searchParams.fullscreen,
+            "lg:flex-row":
+              !preferences.theatreMode &&
+              !searchParams.offline &&
+              !searchParams.fullscreen,
             " rounded backdrop-blur-sm bg-bg2/70 w-[96vw] ":
               appState.player.small,
             "sm:w-[400px]": appState.player.small && !appState.smallDevice,
@@ -435,19 +443,29 @@ export default function Watch() {
                   <button
                     onClick={() => {
                       appState.player.instance?.pause();
-                      if (location.pathname !== "/playlist") {
-                        setSearchParams({ list: undefined });
-                      }
-                      setSearchParams({
-                        v: undefined,
-                        index: undefined,
-                        local: undefined,
-                      });
+                      setTimeout(() => {
+                        if (location.pathname !== "/playlist") {
+                          setSearchParams(
+                            { list: undefined },
+                            {
+                              replace: true,
+                            }
+                          );
+                        }
+                      }, 100);
+                      setSearchParams(
+                        {
+                          v: undefined,
+                          index: undefined,
+                          local: undefined,
+                        },
+                        { replace: true }
+                      );
                       setAppState("player", "dismissed", true);
                     }}
                     class="p-3 outline-none focus-visible:ring-2 ring-primary/80 rounded-lg"
                   >
-                    <FaSolidX class="w-4 h-4" />{" "}
+                    <BsX class="w-6 h-6" />{" "}
                   </button>
                 </div>
               </Show>
@@ -461,7 +479,10 @@ export default function Watch() {
                 {(list) => (
                   <PlaylistContainer
                     setPlaylistScrollContainer={setPlaylistScrollContainer}
-                    playlist={list}
+                    playlist={{
+                      ...list,
+                      index: searchParams.index ?? list.index,
+                    }}
                   />
                 )}
               </Show>
@@ -487,13 +508,16 @@ export default function Watch() {
                     {(list) => (
                       <PlaylistContainer
                         setPlaylistScrollContainer={setPlaylistScrollContainer}
-                        playlist={list}
+                        playlist={{
+                          ...list,
+                          index: searchParams.index ?? list.index,
+                        }}
                       />
                     )}
                   </Show>
                 </div>
                 <Show when={video.data} fallback={<DescriptionFallback />}>
-                  <Description downloaded={videoDownloaded()} />
+                  <Description />
                 </Show>
                 <div class="mx-4">
                   <Suspense>
@@ -503,36 +527,43 @@ export default function Watch() {
                         <div class="px-1">Comments disabled in settings.</div>
                       }
                     >
-                      <Comments
-                        videoId={getVideoId(video.data)!}
-                        uploader={video.data!.uploader}
-                        uploaderAvatar={video.data!.uploaderAvatar}
-                        display={
-                          windowWidth() >= 768 ? "default" : "bottomsheet"
-                        }
-                      />
+                      <Show when={!searchParams.offline}>
+                        <Comments
+                          videoId={getVideoId(video.data)!}
+                          uploader={video.data!.uploader}
+                          uploaderAvatar={video.data!.uploaderAvatar}
+                          display={
+                            windowWidth() >= 768 ? "default" : "bottomsheet"
+                          }
+                        />
+                      </Show>
                     </Show>
                   </Suspense>
                 </div>
               </div>
-              <div
-                classList={{
-                  "flex-col gap-2 items-center w-full min-w-0 lg:max-w-md":
-                    true,
-                  "hidden sm:flex lg:hidden":
-                    !preferences.theatreMode && !searchParams.fullscreen,
-                  flex: preferences.theatreMode || !!searchParams.fullscreen,
-                }}
-              >
-                <Show
-                  when={!preferences.content.hideRelated}
-                  fallback={<div>Related videos disabled in settings.</div>}
+              <Show when={!searchParams.offline}>
+                <div
+                  classList={{
+                    "flex-col gap-2 items-center w-full min-w-0 lg:max-w-md":
+                      true,
+                    "hidden sm:flex lg:hidden":
+                      !preferences.theatreMode && !searchParams.fullscreen,
+                    flex: preferences.theatreMode || !!searchParams.fullscreen,
+                  }}
                 >
-                  <Show when={video.data} fallback={<RelatedVideosFallback />}>
-                    <RelatedVideos />
+                  <Show
+                    when={!preferences.content.hideRelated}
+                    fallback={<div>Related videos disabled in settings.</div>}
+                  >
+                    <Show
+                      when={video.data}
+                      fallback={<RelatedVideosFallback />}
+                    >
+                      <RelatedVideos />
+                    </Show>
                   </Show>
-                </Show>
-              </div>
+                </div>
+              </Show>
             </div>
           </div>
 
@@ -559,7 +590,9 @@ export default function Watch() {
                 }}
               >
                 <Show when={video.data} fallback={<RelatedVideosFallback />}>
-                  <RelatedVideos />
+                  <Show when={!searchParams.offline}>
+                    <RelatedVideos />
+                  </Show>
                 </Show>
               </div>
             </Show>
@@ -654,9 +687,14 @@ export const WatchFallback = () => {
         <div
           classList={{
             "flex-col gap-2 items-center w-full min-w-0 md:max-w-[400px]": true,
-            hidden: preferences.theatreMode || !!searchParams.fullscreen,
+            hidden:
+              preferences.theatreMode ||
+              !!searchParams.offline ||
+              !!searchParams.fullscreen,
             "hidden lg:flex":
-              !preferences.theatreMode && !searchParams.fullscreen,
+              !preferences.theatreMode &&
+              !searchParams.offline &&
+              !searchParams.fullscreen,
           }}
         >
           <RelatedVideosFallback />

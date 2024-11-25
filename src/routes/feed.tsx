@@ -18,7 +18,7 @@ import { useSyncStore } from "~/stores/syncStore";
 import { ErrorComponent } from "~/components/Error";
 import useIntersectionObserver from "~/hooks/useIntersectionObserver";
 import EmptyState from "~/components/EmptyState";
-import { A } from "@solidjs/router";
+import { A, useSearchParams } from "@solidjs/router";
 import { useAppState } from "~/stores/appStateStore";
 import { usePreferences } from "~/stores/preferencesStore";
 import { Tooltip } from "@kobalte/core";
@@ -37,6 +37,7 @@ export default function Feed() {
   const [limit, setLimit] = createSignal(10);
   const [preferences] = usePreferences();
   const sync = useSyncStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const query = createQuery<RelatedStream[]>(() => ({
     queryKey: ["feed", preferences.instance.api_url, sync.store.subscriptions],
     queryFn: async (): Promise<RelatedStream[]> => {
@@ -55,7 +56,8 @@ export default function Feed() {
     enabled:
       preferences.instance?.api_url &&
       !isServer &&
-      Object.keys(sync.store.subscriptions).length
+      Object.keys(sync.store.subscriptions).length &&
+      !searchParams.offline
         ? true
         : false,
     refetchOnMount: true,
@@ -83,8 +85,22 @@ export default function Feed() {
     });
   });
 
+  const [ready, setReady] = createSignal(false);
   createEffect(() => {
-    console.log("query feed", query.error?.message);
+    if (
+      appState.sync.ready &&
+      Object.keys(sync.store.subscriptions).length === 0
+    ) {
+      setTimeout(() => {
+        setReady(true);
+      }, 100);
+    } else {
+      if (appState.sync.ready && !query.isPending) {
+        setTimeout(() => {
+          setReady(true);
+        }, 100);
+      }
+    }
   });
 
   const newComponent = (
@@ -118,44 +134,57 @@ export default function Feed() {
         </Tooltip.Root>
 
         <Show
-          when={appState.sync.ready}
+          when={ready()}
           fallback={
             <For each={Array(20)}>
               {() => <VideoCardFallback layout="sm:grid" />}
             </For>
           }
         >
-          <Show when={query.data && query.data.length > 0}>
-            <For
-              each={filterContent(
-                query.data!,
-                preferences,
-                sync.store.blocklist
-              ).slice(0, limit())}
+          <Show when={!searchParams.offline}>
+            <Show when={query.data && query.data.length > 0}>
+              <For
+                each={filterContent(
+                  query.data!,
+                  preferences,
+                  sync.store.blocklist
+                ).slice(0, limit())}
+              >
+                {(video) => <VideoCard v={video} />}
+              </For>
+            </Show>
+            <Show
+              when={
+                !query.data?.length &&
+                !Object.keys(sync.store.subscriptions).length
+              }
             >
-              {(video) => <VideoCard v={video} />}
-            </For>
+              <div class="h-[80vh] w-full flex items-center justify-center">
+                <EmptyState message="You have no subscriptions.">
+                  <Button as="a" label="Import" href="/import" />
+                </EmptyState>
+              </div>
+            </Show>
+            <Show
+              when={
+                appState.sync.ready &&
+                !query.data?.length &&
+                Object.keys(sync.store.subscriptions).length
+              }
+            >
+              <ErrorComponent error={query.error} />
+            </Show>
           </Show>
-          <Show
-            when={
-              !query.data?.length &&
-              !Object.keys(sync.store.subscriptions).length
-            }
-          >
-            <div class="h-[80vh] w-full flex items-center justify-center">
-              <EmptyState message="You have no subscriptions.">
-                <Button as="a" label="Import" href="/import" />
-              </EmptyState>
+          <Show when={searchParams.offline}>
+            <div class="flex flex-col gap-2 justify-center items-center">
+              You are offline.
+              <Button
+                onClick={() => {
+                  setSearchParams({ offline: undefined });
+                }}
+                label="Disable offline mode"
+              />
             </div>
-          </Show>
-          <Show
-            when={
-              appState.sync.ready &&
-              !query.data?.length &&
-              Object.keys(sync.store.subscriptions).length
-            }
-          >
-            <ErrorComponent error={query.error} />
           </Show>
         </Show>
       </div>
